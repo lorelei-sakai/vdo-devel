@@ -13,9 +13,8 @@
 #include <errno.h>
 #include <stdlib.h>
 
-int
-kstrtouint(const char *string, unsigned int base, unsigned int *result);
-int
-kstrtoull(const char *s, unsigned int base, u64 *res);
+int kstrtoint(const char *s, unsigned int base, int *result);
+int kstrtouint(const char *string, unsigned int base, unsigned int *result);
+int kstrtoull(const char *s, unsigned int base, u64 *res);
 
 #endif // LINUX_KSTRTOX_H
