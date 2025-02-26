@@ -9,6 +9,7 @@
 #include <linux/delay.h>
 #include <linux/device-mapper.h>
 #include <linux/err.h>
+#include <linux/lz4.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/spinlock.h>
@@ -178,6 +179,8 @@ static const char * const ADMIN_PHASE_NAMES[] = {
 static const u8 REQUIRED_ARGC[] = { 10, 12, 9, 7, 6 };
 /* pool name no longer used. only here for verification of older versions */
 static const u8 POOL_NAME_ARG_INDEX[] = { 8, 10, 8 };
+
+#define VDO_COMP_LZ4 "lz4"
 
 /*
  * Track in-use instance numbers using a flat bit array.
@@ -449,6 +452,43 @@ static inline int __must_check parse_bool(const char *bool_str, const char *true
 }
 
 /**
+ * parse_compression() - Parse a conpression configuration string.
+ * @string: The string value describing compression options.
+ * @config: The configuration data structure to update.
+ *
+ * Return: VDO_SUCCESS or an error.
+ */
+static int __must_check parse_compression(const char *string,
+					  struct device_config *config)
+{
+	char *delimiter = strchr(string, ':');
+	char *option_string;
+	int key_length = strlen(string) - 1;
+	int result;
+
+	if (delimiter) {
+		key_length = delimiter - string;
+		option_string = &delimiter[1];
+	}
+
+	if ((strncmp(string, VDO_COMP_LZ4, key_length) == 0) && delimiter) {
+		result = kstrtoint(&delimiter[1], 10,
+				   &config->compression_level);
+		if (result) {
+			vdo_log_error("optional config string error: integer needed, found \"%s\"",
+				      option_string);
+			return VDO_BAD_CONFIGURATION;
+		}
+	} else {
+		vdo_log_error("optional config string error: unknown compression type \"%s\"",
+			      string);
+		return VDO_BAD_CONFIGURATION;
+	}
+ 
+	return VDO_SUCCESS;
+}
+
+/**
  * process_one_thread_config_spec() - Process one component of a thread parameter configuration
  *				      string and update the configuration data structure.
  * @thread_param_type: The type of thread specified.
@@ -669,13 +709,17 @@ static int parse_one_key_value_pair(const char *key, const char *value,
 	if (strcmp(key, "compression") == 0)
 		return parse_bool(value, "on", "off", &config->compression);
 
-	/* The remaining arguments must have integral values. */
+	if (strcmp(key, "compressionType") == 0)
+		return parse_compression(value, config);
+
+	/* The remaining arguments must have positive integral values. */
 	result = kstrtouint(value, 10, &count);
 	if (result) {
-		vdo_log_error("optional config string error: integer value needed, found \"%s\"",
+		vdo_log_error("optional config string error: positive integer needed, found \"%s\"",
 			      value);
-		return result;
+		return VDO_BAD_CONFIGURATION;
 	}
+
 	return process_one_key_value_pair(key, count, config);
 }
 
@@ -827,6 +871,7 @@ static int parse_device_config(int argc, char **argv, struct dm_target *ti,
 	config->max_discard_blocks = 1;
 	config->deduplication = true;
 	config->compression = false;
+	config->compression_level = LZ4_ACCELERATION_DEFAULT;
 
 	arg_set.argc = argc;
 	arg_set.argv = argv;
@@ -1144,11 +1189,11 @@ static void vdo_status(struct dm_target *ti, status_type_t status_type,
 		vdo_fetch_statistics(vdo, &vdo->stats_buffer);
 		stats = &vdo->stats_buffer;
 
-		DMEMIT("/dev/%pg %s %s %s %s %llu %llu",
+		DMEMIT("/dev/%pg %s %s %s %s %s %llu %llu",
 		       vdo_get_backing_device(vdo), stats->mode,
 		       stats->in_recovery_mode ? "recovering" : "-",
 		       vdo_get_dedupe_index_state_name(vdo->hash_zones),
-		       vdo_get_compressing(vdo) ? "online" : "offline",
+		       vdo_get_compressing(vdo) ? "online" : "offline", VDO_COMP_LZ4,
 		       stats->data_blocks_used + stats->overhead_blocks_used,
 		       stats->physical_blocks);
 		mutex_unlock(&vdo->stats_mutex);
@@ -3104,7 +3149,7 @@ static void vdo_resume(struct dm_target *ti)
 static struct target_type vdo_target_bio = {
 	.features = DM_TARGET_SINGLETON,
 	.name = "vdo",
-	.version = { 9, 1, 0 },
+	.version = { 9, 2, 0 },
 #ifdef __KERNEL__
 	.module = THIS_MODULE,
 #endif /* __KERNEL__ */

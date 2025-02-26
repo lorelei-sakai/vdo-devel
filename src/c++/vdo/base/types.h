@@ -223,13 +223,14 @@ struct device_config {
 	 * of 4K blocks regardless of the value of the logical_block_size parameter below.
 	 */
 	block_count_t logical_blocks;
+	block_count_t max_discard_blocks;
 	unsigned int logical_block_size;
 	unsigned int cache_size;
 	unsigned int block_map_maximum_age;
-	bool deduplication;
-	bool compression;
 	struct thread_count_config thread_counts;
-	block_count_t max_discard_blocks;
+	int compression_level;
+	bool compression;
+	bool deduplication;
 };
 
 enum vdo_completion_type {

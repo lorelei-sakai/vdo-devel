@@ -170,6 +170,17 @@ Miscellaneous parameters:
 		Whether compression is enabled. The default is 'off'; the
 		acceptable values are 'on' and 'off'.
 
+	compressionType:
+		The compression type to use. This value must begin with a
+		string indicating which compresion algorithm to use when
+		compression is enabled. It may also contain a ':' after the
+		algorithm, followed by options specific to the chosen
+		algorithm. The only supported algorithm is 'lz4'.
+
+		For lz4, there is one option, which is the acceleration factor
+		to use when compressing. For example, 'lz4:3' will use an
+		acceleration factor of 3.
+
 Device modification
 -------------------
 
@@ -242,11 +253,11 @@ All vdo devices accept messages in the form:
 
 ::
 
-        dmsetup message <target-name> 0 <message-name> <message-parameters>
+	dmsetup message <target-name> 0 <message-name> <message-parameters>
 
 The messages are:
 
-        stats:
+	stats:
 		Outputs the current view of the vdo statistics. Mostly used
 		by the vdostats userspace program to interpret the output
 		buffer.
@@ -270,7 +281,7 @@ The messages are:
 			default: Equivalent to 'queues vdo'
 			all: All of the above.
 
-        dump-on-shutdown:
+	dump-on-shutdown:
 		Perform a default dump next time vdo shuts down.
 
 
