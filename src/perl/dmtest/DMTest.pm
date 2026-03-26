@@ -189,7 +189,14 @@ sub set_up {
 ##
 sub createTestDevice {
   my ($self, $deviceType, %extra) = assertMinArgs(2, @_);
-  return $self->getStorageStack()->create($deviceType, { %extra });
+  my %deviceOptions = ();
+
+  if (defined($self->{"${deviceType}Options"})) {
+    %deviceOptions = ( %{$self->{"${deviceType}Options"}});
+  }
+
+  my $deviceArgs = { %deviceOptions, %extra };
+  return $self->getStorageStack()->create($deviceType, $deviceArgs);
 }
 
 ########################################################################

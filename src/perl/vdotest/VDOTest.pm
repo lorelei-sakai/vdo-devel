@@ -387,15 +387,23 @@ sub reserveHosts {
 ##
 sub createTestDevice {
   my ($self, $deviceType, %extra) = assertMinArgs(2, @_);
-  # clone $extra so as not to modify it.
-  if ($self->{_traceTypes}{$deviceType}) {
-    $extra{tracing} //= 1;
+  my %deviceOptions = ();
+
+  if (defined($self->{"${deviceType}Options"})) {
+    %deviceOptions = ( %{$self->{"${deviceType}Options"}});
   }
+
+  if ($self->{_traceTypes}{$deviceType}) {
+    $deviceOptions{tracing} = 1;
+  }
+
   if (defined($RAID_TYPES{$deviceType})) {
-    $extra{raidType} //= $RAID_TYPES{$deviceType};
+    $deviceOptions{raidType} = $RAID_TYPES{$deviceType};
     $deviceType = "raid";
   }
-  return $self->getStorageStack()->create($deviceType, { %extra });
+
+  my $deviceArgs = { %deviceOptions, %extra };
+  return $self->getStorageStack()->create($deviceType, $deviceArgs);
 }
 
 ########################################################################
