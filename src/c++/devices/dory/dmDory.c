@@ -122,6 +122,8 @@ typedef struct {
   struct bio        *blockBio;
   // The BLOCK number of this block (not the sector number).
   sector_t           blockNumber;
+  // The offset of this block into its allocated page in hhe backing array.
+  unsigned int       offset;
   // The state of this cache block
   BlockState         state;
 } CacheBlock;
@@ -709,17 +711,59 @@ static void flushCacheBlock(CacheBlock *cb)
   cb->blockBio->bi_opf = REQ_OP_WRITE;
 #else
   bio_reset(cb->blockBio, dd->dev->bdev, REQ_OP_WRITE);
+//  bio_init_inline(cb->blockBio, dd->dev->bdev, 1, REQ_OP_WRITE);
 #endif
   cb->blockBio->bi_end_io  = endFlushCacheBlock;
   cb->blockBio->bi_private = cb;
   setBioBlockDevice(cb->blockBio, dd->dev->bdev);
   setBioSector(cb->blockBio, cb->blockNumber << dd->blockShift);
+//  cb->blockBio->bi_max_vecs = 1;
+//
+  cb->blockBio->bi_io_vec = bio_inline_vecs(bio);
+  cb->blockBio->bi_max_vecs = 1;
+  
+  struct page *page = vmalloc_to_page(cb->blockData); //
+  unsigned long offset_size = (unsigned long) cb->blockData;
+  unsigned long offset = (unsigned long) cb->blockData % PAGE_SIZE;
+
+  printk(KERN_WARNING "flags %u CLONED %u flagged %u size %u vcnt %u",
+         cb->blockBio->bi_flags, BIO_CLONED,
+         bio_flagged(cb->blockBio, BIO_CLONED),
+         cb->blockBio->bi_iter.bi_size, cb->blockBio->bi_vcnt);
+  if (cb->blockBio->bi_vcnt > 0) {
+    struct bio_vec *bv = &cb->blockBio->bi_io_vec[cb->blockBio->bi_vcnt - 1];
+
+    printk(KERN_WARNING "pgmap? %s",
+           zone_device_pages_have_same_pgmap(bv->bv_page, page) ? "true" : "false");
+  }
+
+  printk(KERN_WARNING "data %p %lu page %p %lu bs %zu",
+         (void *) cb->blockData, (uintptr_t) cb->blockData,
+         (void *) page, (uintptr_t) page, dd->blockSize);
+  printk(KERN_WARNING "offset %lu %lu longer %llu %llu real %u",
+         offset_size, offset, (unsigned long long) cb->blockData,
+         (unsigned long long) cb->blockData % PAGE_SIZE, cb->offset);
+
+  int bytes_added =
+    bio_add_page(cb->blockBio, vmalloc_to_page(cb->blockData), dd->blockSize,
+//                 (unsigned long) cb->blockData % PAGE_SIZE);
+                 offset_in_page(cb->blockData);
+//  int bytes_added =
+//    bio_add_page(cb->blockBio, page, dd->blockSize, cb->offset);
+  printk(KERN_WARNING "bytes added: %d", bytes_added);
+  if (bytes_added != dd->blockSize) {
+    /* XXX Make this a real failure, don't just proceed with a broken bio. */
+    printk(KERN_WARNING "problem adding block data to bio");
+  }
+/*
+
   int bytes_added =
     bio_add_page(cb->blockBio, vmalloc_to_page(cb->blockData), dd->blockSize,
                  (unsigned long) cb->blockData % PAGE_SIZE);
   if (bytes_added != dd->blockSize) {
     printk(KERN_WARNING "problem adding block data to bio");
   }
+*/
   if (dd->stopFlag) {
     // We are supposed to stop writing, so fail the write.
     atomic64_inc(&dd->flushFailure);
@@ -1072,6 +1116,7 @@ static int doryCtr(struct dm_target *ti, unsigned int argc, char **argv)
     spin_lock_init(&cb->lock);
     cb->blockBio = bio_kmalloc(1, GFP_KERNEL);
     cb->blockData = cacheData;
+    cb->offset = (i * blockSize) % PAGE_SIZE;
     cb->doryDevice = dd;
     cb->state = EMPTY;
     cacheData += blockSize;
